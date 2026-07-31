@@ -6,7 +6,7 @@ These locally run HTML pages generate playlist files from your music archive.
 
 To generate the files you first need to generate an extract of the metadata of your music. Your music metadata needs to be as complete as possible before you generate the extract.
 
-To generate the extract you will need ExifTool installed on your system.
+To generate the extract you will need ExifTool (https://exiftool.org/) installed on your system.
 
 Once you have ExifTool you can run the command line: exiftool -r -ext mp3 -ext flac -ext m4a -ext wav -csv "Path\to\your\MusicFiles" > "path\for\the\export\music_inventory_allMetadata.csv"
 
@@ -19,3 +19,5 @@ The playlist generator will give you a screen where you can download the entire 
 If you are doing this in Windows, be aware that the export uses the / character in the path and windows needs it to be \. You will need to load the playlist files in something like Notepad++ and have it replace all the / for \ in every playlist.
 
 Once you have the files ready, you can import them into iTunes or JellyFin and your music will be ready to play.
+
+<img src="https://github.com/LifeAtTerminalVelocity/PlaylistGenerator/blob/main/Screenshot%202026-07-30%20at%2021.07.52.png"
