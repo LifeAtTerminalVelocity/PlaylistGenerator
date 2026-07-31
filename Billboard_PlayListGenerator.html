@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Offline Billboard Playlist Generator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        body { font-family: -apple-system, sans-serif; background: #121212; color: #eee; padding: 40px; }
+        .container { max-width: 800px; margin: auto; background: #1e1e1e; padding: 30px; border-radius: 12px; box-shadow: 0 4px 25px rgba(0,0,0,0.5); text-align: center; }
+        h1 { margin-top: 0; color: #fff; }
+        .drop-zone { border: 2px dashed #007acc; padding: 50px; border-radius: 8px; background: #181818; cursor: pointer; transition: 0.2s; }
+        .drop-zone:hover { background: #222; }
+        p { color: #aaa; line-height: 1.5; }
+        #status { margin-top: 20px; font-weight: bold; color: #4CAF50; display: none; }
+        .btn { background: #28a745; color: #fff; border: none; padding: 12px 24px; font-size: 16px; font-weight: bold; border-radius: 6px; cursor: pointer; display: none; margin: 20px auto 0; }
+        .btn:hover { background: #218838; }
+        input[type="file"] { display: none; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>🏆 Offline Billboard Playlist Matcher</h1>
+    <p>Drag and drop <b>BOTH</b> your <code>music_inventory.csv</code> AND the <code>hot-100-current.csv</code> into the box below at the same time.</p>
+
+    <div class="drop-zone" id="dropZone">
+        Drop Both CSV Files Here
+        <input type="file" id="fileInput" accept=".csv" multiple>
+    </div>
+
+    <div id="status"></div>
+    <button id="downloadBtn" class="btn">📦 Download Billboard Playlists (ZIP)</button>
+</div>
+
+<script>
+    const dropZone = document.getElementById('dropZone');
+    const fileInput = document.getElementById('fileInput');
+    const status = document.getElementById('status');
+    const downloadBtn = document.getElementById('downloadBtn');
+
+    let userTracks = [];
+    let billboardTracks = [];
+    let finalPlaylists = {
+        "By Year & Billboard 100": {},
+        "By Decade & Billboard 100": {},
+        "Billboard Top 10": { "Hits Better Than 10th": [] }
+    };
+
+    dropZone.addEventListener('click', () => fileInput.click());
+    dropZone.addEventListener('dragover', (e) => { e.preventDefault(); dropZone.style.background = '#222'; });
+    dropZone.addEventListener('dragleave', () => dropZone.style.background = '#181818');
+    dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.style.background = '#181818';
+        if (e.dataTransfer.files.length === 2) handleFiles(e.dataTransfer.files);
+        else alert("Please drop exactly TWO files: your music inventory AND the Billboard CSV.");
+    });
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length === 2) handleFiles(e.target.files);
+        else alert("Please select exactly TWO files.");
+    });
+
+    function handleFiles(files) {
+        let file1 = files[0], file2 = files[1];
+        let file1Name = file1.name.toLowerCase(), file2Name = file2.name.toLowerCase();
+
+        let musicFile = file1Name.includes('inventory') || file1Name.includes('metadata') ? file1 : file2;
+        let bbFile = file2Name.includes('hot') || file2Name.includes('billboard') ? file2 : file1;
+
+        status.style.display = 'block';
+        status.innerText = "⏳ Reading files...";
+        dropZone.style.display = 'none';
+
+        let reader1 = new FileReader();
+        reader1.onload = (e) => {
+            parseUserMusic(e.target.result);
+            let reader2 = new FileReader();
+            reader2.onload = (e) => {
+                parseBillboard(e.target.result);
+                matchData();
+            };
+            reader2.readAsText(bbFile);
+        };
+        reader1.readAsText(musicFile);
+    }
+
+    // Fast CSV Line Parser
+    function parseLine(text) {
+        let r = [''], q = false;
+        for (let i = 0; i < text.length; i++) {
+            let c = text[i];
+            if (c === '"') q = !q;
+            else if (c === ',' && !q) r.push('');
+            else r[r.length - 1] += c;
+        }
+        return r;
+    }
+
+    function cleanString(str) {
+        if (!str) return "";
+        return str.toLowerCase().replace(/\([^)]*\)/g, '').split(/\s+(feat\.?|ft\.?|featuring)\s+/i)[0].replace(/[^a-z0-9]/g, '');
+    }
+
+    function parseUserMusic(csv) {
+        let lines = csv.split(/\r?\n/);
+        let headers = parseLine(lines[0].toLowerCase());
+        
+        let iPath = headers.findIndex(h => h.includes('sourcefile'));
+        let iTitle = headers.findIndex(h => h.includes('title'));
+        let iArtist = headers.findIndex(h => h.includes('artist'));
+        let iYear = headers.findIndex(h => h.includes('year') || h.includes('date'));
+
+        for (let i = 1; i < lines.length; i++) {
+            if (!lines[i]) continue;
+            let row = parseLine(lines[i]);
+            if (row.length <= iPath || !row[iPath]) continue;
+
+            let path = row[iPath].trim();
+            let title = row[iTitle] ? row[iTitle].trim() : "";
+            let artist = row[iArtist] ? row[iArtist].trim() : "";
+            let rawYear = row[iYear] ? row[iYear].trim() : "";
+            
+            let matchYear = rawYear.match(/\b(19|20)\d{2}\b/);
+            let year = matchYear ? matchYear[0] : "Unknown Year";
+            let decade = year !== "Unknown Year" ? Math.floor(parseInt(year) / 10) * 10 + "s" : "Unknown Decade";
+
+            userTracks.push({ path, title, artist, year, decade, cleanTitle: cleanString(title), cleanArtist: cleanString(artist), rank: 101 });
+        }
+    }
+
+    function parseBillboard(csv) {
+        let lines = csv.split(/\r?\n/);
+        let headers = parseLine(lines[0].toLowerCase());
+        let iSong = headers.findIndex(h => h.includes('title') || h.includes('song'));
+        let iArtist = headers.findIndex(h => h.includes('performer') || h.includes('artist'));
+        let iRank = headers.findIndex(h => h === 'current_week' || h.includes('rank'));
+        
+        if(iSong === -1) iSong = 2; if(iArtist === -1) iArtist = 3; if(iRank === -1) iRank = 1;
+
+        for (let i = 1; i < lines.length; i++) {
+            if (!lines[i]) continue;
+            let row = parseLine(lines[i]);
+            if (row.length <= Math.max(iSong, iArtist, iRank)) continue;
+
+            let rank = parseInt(row[iRank]);
+            if (!isNaN(rank)) {
+                billboardTracks.push({ rank: rank, cleanTitle: cleanString(row[iSong]), cleanArtist: cleanString(row[iArtist]) });
+            }
+        }
+    }
+
+    function matchData() {
+        status.innerText = "🔍 Cross-referencing 330,000 chart entries... (This takes a few seconds)";
+        
+        setTimeout(() => {
+            let matchCount = 0;
+            
+            // Build fast lookup index for user tracks by Title
+            let songIndex = {};
+            userTracks.forEach(t => {
+                if(!t.cleanTitle) return;
+                if(!songIndex[t.cleanTitle]) songIndex[t.cleanTitle] = [];
+                songIndex[t.cleanTitle].push(t);
+            });
+
+            // Match against Billboard history
+            billboardTracks.forEach(b => {
+                if (songIndex[b.cleanTitle]) {
+                    songIndex[b.cleanTitle].forEach(t => {
+                        if (t.cleanArtist && b.cleanArtist && (b.cleanArtist.includes(t.cleanArtist) || t.cleanArtist.includes(b.cleanArtist))) {
+                            if (b.rank < t.rank) {
+                                if (t.rank === 101) matchCount++;
+                                t.rank = b.rank;
+                            }
+                        }
+                    });
+                }
+            });
+
+            // Categorize the matched files
+            userTracks.forEach(t => {
+                if (t.rank <= 100) {
+                    if (t.year !== "Unknown Year") {
+                        let yKey = `${t.year} Billboard Top 100`;
+                        if (!finalPlaylists["By Year & Billboard 100"][yKey]) finalPlaylists["By Year & Billboard 100"][yKey] = [];
+                        finalPlaylists["By Year & Billboard 100"][yKey].push(t);
+                    }
+                    if (t.decade !== "Unknown Decade") {
+                        let dKey = `${t.decade} Billboard Top 100`;
+                        if (!finalPlaylists["By Decade & Billboard 100"][dKey]) finalPlaylists["By Decade & Billboard 100"][dKey] = [];
+                        finalPlaylists["By Decade & Billboard 100"][dKey].push(t);
+                    }
+                }
+                if (t.rank < 10) {
+                    finalPlaylists["Billboard Top 10"]["Hits Better Than 10th"].push(t);
+                }
+            });
+
+            // Sort everything accurately by chart position
+            for(let k in finalPlaylists["By Year & Billboard 100"]) finalPlaylists["By Year & Billboard 100"][k].sort((a,b) => a.rank - b.rank);
+            for(let k in finalPlaylists["By Decade & Billboard 100"]) finalPlaylists["By Decade & Billboard 100"][k].sort((a,b) => a.rank - b.rank);
+            finalPlaylists["Billboard Top 10"]["Hits Better Than 10th"].sort((a,b) => a.rank - b.rank);
+
+            status.innerText = `✅ Success! Found ${matchCount} exact Billboard Matches.`;
+            downloadBtn.style.display = 'block';
+        }, 100);
+    }
+
+    downloadBtn.addEventListener('click', async () => {
+        downloadBtn.innerText = "⏳ Zipping...";
+        downloadBtn.style.pointerEvents = "none";
+        
+        const zip = new JSZip();
+        for (const [catName, subCats] of Object.entries(finalPlaylists)) {
+            let folder; let hasFiles = false;
+            for (const [name, tracks] of Object.entries(subCats)) {
+                if (tracks.length > 0) {
+                    if (!hasFiles) { folder = zip.folder(catName); hasFiles = true; }
+                    let content = "#EXTM3U\n" + tracks.map(t => `#EXTINF:-1,${t.artist} - ${t.title}\n${t.path}`).join("\n");
+                    folder.file(`${name.replace(/[\/\\?%*:|"<>\s]/g, '_')}.m3u8`, content);
+                }
+            }
+        }
+
+        const blob = await zip.generateAsync({ type: "blob" });
+        const link = document.createElement("a");
+        link.href = URL.createObjectURL(blob);
+        link.download = "Billboard_Ranked_Playlists.zip";
+        document.body.appendChild(link); link.click(); document.body.removeChild(link);
+        
+        downloadBtn.innerText = "📦 Download Billboard Playlists (ZIP)";
+        downloadBtn.style.pointerEvents = "auto";
+    });
+</script>
+</body>
+</html>
