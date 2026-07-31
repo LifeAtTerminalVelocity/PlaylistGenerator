@@ -20,4 +20,4 @@ If you are doing this in Windows, be aware that the export uses the / character 
 
 Once you have the files ready, you can import them into iTunes or JellyFin and your music will be ready to play.
 
-<img src="https://github.com/LifeAtTerminalVelocity/PlaylistGenerator/blob/main/Screenshot%202026-07-30%20at%2021.07.52.png"
+<img src="https://github.com/LifeAtTerminalVelocity/PlaylistGenerator/blob/main/Screenshot%202026-07-30%20at%2021.07.52.png">
